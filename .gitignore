@@ -1,0 +1,63 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+env/
+
+# Environment variables and configuration
+.env
+*.ini
+*.cfg
+*.toml
+
+# JSON and sensitive data
+*.json
+*.xml
+*.csv
+secrets.json
+
+# Logs and debugging
+*.log
+*.out
+*.err
+logs/
+debug.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+*.swp
+*.swo
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.code-workspace
+
+# Node.js & JS/Frontend projects
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json
+dist/
+build/
+
+# Python packaging
+*.egg-info/
+pip-log.txt
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Docker and CI/CD
+docker-compose.override.yml
+*.dockerfile
+*.dockerignore
