@@ -4,7 +4,7 @@ import pickle
 import numpy as np
 from resemblyzer import VoiceEncoder, preprocess_wav
 import uuid
-from src.utilities.Manage_Json_files import JSONManager  # Adjust the import based on your project structure
+from helpers.Manage_Json_files import JSONManager  # Adjust the import based on your project structure
 from pathlib import Path
 
 

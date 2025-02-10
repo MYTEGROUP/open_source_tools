@@ -4,8 +4,8 @@ import time
 import os
 import sys
 from openai import OpenAI
-from src.config.config import OPENAI_API_KEY, STATIC_DIR
-from src.utilities.Manage_Json_files import JSONManager
+from config import OPENAI_API_KEY, STATIC_DIR
+from helpers.Manage_Json_files import JSONManager
 
 # Declare openai_client at the module level
 openai_client = None

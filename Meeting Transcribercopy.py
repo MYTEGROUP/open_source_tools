@@ -1,4 +1,4 @@
-# Meeting Transcriber.py
+# main.py
 import tkinter as tk
 from tkinter import ttk
 import threading
@@ -16,14 +16,6 @@ from mongodatabase.mango_connection import save_meeting_data_to_mongo
 from bson.son import SON
 from helpers.voice_profiler import VoiceManager
 from datetime import datetime
-
-# -- NEW IMPORTS FOR PHASE 1 --
-from analysis import theme_analysis
-from analysis import insights_analysis
-from analysis import summary_analysis
-from analysis import questions_analysis
-from analysis import action_items_analysis
-# -----------------------------
 
 # Audio Configuration
 CHUNK = 1024
@@ -88,20 +80,10 @@ class MeetingTranscriberApp:
         self.is_paused = False
         self.summary = ""
         self.summary_json = {}
-        self.insights = {}
+        self.insights = {}  # New variable for insights
         self.gui_update_interval = 1000  # milliseconds
         self.total_tokens = 0
         self.voice_manager = VoiceManager()
-
-        # -- NEW FOR PHASE 1: Parallel analysis structures --
-        self.analysis_data = {
-            'themes': [],         # from theme_analysis
-            'insights': [],       # from insights_analysis
-            'summary': "",        # from summary_analysis
-            'questions': [],      # from questions_analysis
-            'action_items': []    # from action_items_analysis
-        }
-        # ----------------------------------------------------
 
     def create_input_frame(self):
         # Input Frame
@@ -152,27 +134,18 @@ class MeetingTranscriberApp:
         self.tab_transcription = ttk.Frame(self.notebook)
         self.tab_summary = ttk.Frame(self.notebook)
         self.tab_insights = ttk.Frame(self.notebook)
-        self.tab_themes = ttk.Frame(self.notebook)
-        self.tab_questions = ttk.Frame(self.notebook)
-        self.tab_action_items = ttk.Frame(self.notebook)
 
         # Add tabs to the notebook
         self.notebook.add(self.tab_meeting_details, text="Meeting Details")
         self.notebook.add(self.tab_transcription, text="Transcription")
         self.notebook.add(self.tab_summary, text="Summary")
         self.notebook.add(self.tab_insights, text="Insights")
-        self.notebook.add(self.tab_themes, text="Themes")
-        self.notebook.add(self.tab_questions, text="Questions")
-        self.notebook.add(self.tab_action_items, text="Action Items")
 
         # Populate each tab with appropriate UI elements
         self.create_meeting_details_tab()
         self.create_transcription_tab()
         self.create_summary_tab()
         self.create_insights_tab()
-        self.create_themes_tab()
-        self.create_questions_tab()
-        self.create_action_items_tab()
 
     def create_meeting_details_tab(self):
         # Labels to display meeting details
@@ -194,28 +167,11 @@ class MeetingTranscriberApp:
         self.summary_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
     def create_insights_tab(self):
+        # ScrolledText widget to display insights
         self.insights_text = scrolledtext.ScrolledText(
             self.tab_insights, wrap=tk.WORD, state='disabled', font=("Arial", 12)
         )
         self.insights_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-    def create_themes_tab(self):
-        self.themes_text = scrolledtext.ScrolledText(
-            self.tab_themes, wrap=tk.WORD, state='disabled', font=("Arial", 12)
-        )
-        self.themes_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-    def create_questions_tab(self):
-        self.questions_text = scrolledtext.ScrolledText(
-            self.tab_questions, wrap=tk.WORD, state='disabled', font=("Arial", 12)
-        )
-        self.questions_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-    def create_action_items_tab(self):
-        self.action_items_text = scrolledtext.ScrolledText(
-            self.tab_action_items, wrap=tk.WORD, state='disabled', font=("Arial", 12)
-        )
-        self.action_items_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
     def create_status_bar(self):
         # Status Bar
@@ -274,14 +230,6 @@ class MeetingTranscriberApp:
         self.audio_queue = Queue()
         self.transcript_queue = Queue()
         self.unprocessed_transcriptions = []
-
-        # -- Reset our parallel analysis data --
-        self.analysis_data['themes'] = []
-        self.analysis_data['insights'] = []
-        self.analysis_data['summary'] = ""
-        self.analysis_data['questions'] = []
-        self.analysis_data['action_items'] = []
-        # --------------------------------------
 
         # Start the audio recorder
         self.recorder = AudioRecorder(self.audio_queue, self.stop_event, self.pause_event)
@@ -382,9 +330,6 @@ class MeetingTranscriberApp:
         # Process any unprocessed transcriptions before final summary
         self.process_remaining_transcriptions()
 
-        # -- PHASE 1: We do NOT do any final polishing here yet --
-        # We will keep your existing final summary generation, plus we can expand it later.
-
         # Final summary and save
         final_thread = threading.Thread(target=self.generate_final_summary_and_save, daemon=True)
         final_thread.start()
@@ -410,6 +355,9 @@ class MeetingTranscriberApp:
     def process_audio_data(self, audio_data):
         """
         Processes a single audio chunk: saves it, identifies the speaker, transcribes, and associates the transcription with the speaker ID.
+
+        Args:
+            audio_data (bytes): The raw audio data.
         """
         audio_file_path = self.save_audio_to_wav(audio_data)
         if audio_file_path:
@@ -440,7 +388,6 @@ class MeetingTranscriberApp:
     def process_transcriptions(self):
         """
         Processes transcriptions by updating the summary at regular intervals (every 5 seconds).
-        Also fans out updates to parallel analysis modules (Phase 1).
         """
         JSONManager.log_event(
             "Summarization", "Transcription processing for summarization started."
@@ -454,36 +401,11 @@ class MeetingTranscriberApp:
                     if current_time - self.last_summary_time >= TRANSCRIPTION_INTERVAL:
                         combined_text = " ".join(self.unprocessed_transcriptions).strip()
                         self.unprocessed_transcriptions = []  # Clear after accumulating
-
-                        # Update the summary incrementally (as before)
-                        self.analysis_data['summary'] = summary_analysis.incremental_update(
-                            combined_text, self.analysis_data['summary']
-                        )
-
-                        # -- Fan out to other analysis modules in separate threads --
-                        # THEMES
-                        self.executor.submit(
-                            self.update_themes, combined_text
-                        )
-                        # INSIGHTS
-                        self.executor.submit(
-                            self.update_insights, combined_text
-                        )
-                        # QUESTIONS
-                        self.executor.submit(
-                            self.update_questions, combined_text
-                        )
-                        # ACTION ITEMS
-                        self.executor.submit(
-                            self.update_action_items, combined_text
-                        )
-                        # ---------------------------------------------------------
-
+                        self.update_summary(combined_text)
                         self.last_summary_time = current_time
-
-                        # For now, let's just reflect the summary in the UI
-                        self.root.after(0, self.update_summary_tab)
-
+                        JSONManager.log_event(
+                            "Summarization", "Summary updated with new transcriptions."
+                        )
             except Empty:
                 continue
             except Exception as e:
@@ -499,7 +421,7 @@ class MeetingTranscriberApp:
 
     def process_remaining_transcriptions(self):
         """
-        Processes any remaining transcriptions that haven't been summarized or analyzed yet.
+        Processes any remaining transcriptions that haven't been summarized yet.
         """
         if self.unprocessed_transcriptions:
             combined_text = " ".join(self.unprocessed_transcriptions).strip()
@@ -508,51 +430,133 @@ class MeetingTranscriberApp:
 
     def update_summary(self, new_transcription):
         """
-        Updates the meeting summary using the summary_analysis.py (placeholder).
-        """
-        self.analysis_data['summary'] = summary_analysis.incremental_update(
-            new_transcription, self.analysis_data['summary']
-        )
-        # Update the UI
-        self.root.after(0, self.update_summary_tab)
+        Updates the meeting summary by generating new summary text using the AI LLMs.
 
-    # -- NEW Analysis Update Methods (Phase 1) --
-    def update_themes(self, chunk_text):
+        Args:
+            new_transcription (str): The latest transcription text.
         """
-        Updates the 'themes' list using theme_analysis incremental_update.
-        """
-        self.analysis_data['themes'] = theme_analysis.incremental_update(
-            chunk_text, self.analysis_data['themes']
-        )
-        self.root.after(0, self.update_themes_tab)
+        # Compile full transcript text
+        full_transcript_text = "\n".join([
+            f"[{entry['timestamp']}] Speaker {entry['speaker_id']}: {entry['text']}"
+            for entry in self.full_transcript
+        ])
 
-    def update_insights(self, chunk_text):
-        """
-        Updates the 'insights' list using insights_analysis incremental_update.
-        """
-        self.analysis_data['insights'] = insights_analysis.incremental_update(
-            chunk_text, self.analysis_data['insights']
-        )
-        self.root.after(0, self.update_insights_tab)
+        # If the previous summary is empty, treat this as the first summary generation
+        if not self.summary:
+            previous_summary_text = "This is the first summary for this meeting."
+        else:
+            previous_summary_text = self.summary
 
-    def update_questions(self, chunk_text):
-        """
-        Updates the list of open questions using questions_analysis incremental_update.
-        """
-        self.analysis_data['questions'] = questions_analysis.incremental_update(
-            chunk_text, self.analysis_data['questions']
-        )
-        self.root.after(0, self.update_questions_tab)
+        system_context = "You are an AI assistant that summarizes meeting discussions."
 
-    def update_action_items(self, chunk_text):
-        """
-        Updates the list of action items using action_items_analysis incremental_update.
-        """
-        self.analysis_data['action_items'] = action_items_analysis.incremental_update(
-            chunk_text, self.analysis_data['action_items']
+        assistant_context = (
+            "You are provided with the following meeting context, objective, and previous summary. "
+            "Your task is to regenerate the entire summary by refining the previous summary and integrating new insights from the latest transcription. "
+            "Make sure to filter out non-important discussions and refine questions based on the meeting's evolving context."
         )
-        self.root.after(0, self.update_action_items_tab)
-    # --------------------------------------------------
+
+        prompt = f"""
+Meeting Title: {self.meeting_name}
+Meeting Objective: {self.meeting_objective}
+
+Full Transcript Snippet:
+{full_transcript_text}
+
+New Transcription Chunk:
+{new_transcription}
+
+Previous Summary:
+{previous_summary_text}
+
+Please update the meeting summary by organizing it into the following sections:
+
+1. **Questions/Clarifications**: Add a list of questions directly related to the objective of the meeting, ignoring irrelevant topics.
+2. **Themes**: Provide a summary of the different themes discussed thus far, enhancing/growing upon existing themes or adding new ones if detected; focusing on key decisions, points of discussion, and insights.
+3. **Action Items**: List any action items identified, who they are assigned to, and due dates if mentioned.
+"""
+
+        # Submit the summarization task to the thread pool
+        future = self.executor.submit(generate_text, system_context, assistant_context, prompt)
+        future.add_done_callback(self.handle_summary_result)
+
+    def handle_summary_result(self, future):
+        """
+        Handles the result of the summarization task.
+
+        Args:
+            future (Future): The future object containing the summarization result.
+        """
+        try:
+            updated_summary_text, tokens = future.result()
+            self.total_tokens += tokens
+            if updated_summary_text and not updated_summary_text.startswith("An error occurred"):
+                self.summary = updated_summary_text.strip()
+                self.summary_json = self.parse_summary_to_json(self.summary)
+                self.root.after(0, self.update_summary_tab)
+                JSONManager.log_event("Update Summary", f"Summary updated. Tokens used: {tokens}")
+                self.save_meeting_data()
+            else:
+                JSONManager.log_event("Update Summary", "No summary generated or error in generation.")
+        except Exception as e:
+            JSONManager.log_event("Update Summary Exception", f"Error in handle_summary_result: {e}")
+
+    def parse_summary_to_json(self, summary_text):
+        """
+        Parses the summary text into a JSON structure.
+        """
+        summary_json = {
+            "questions_clarifications": [],
+            "themes": [],
+            "action_items": []
+        }
+        lines = summary_text.split('\n')
+        current_section = None
+        for line in lines:
+            line = line.strip()
+            if line.startswith("1. **Questions/Clarifications**"):
+                current_section = "questions_clarifications"
+                continue
+            elif line.startswith("2. **Themes**"):
+                current_section = "themes"
+                continue
+            elif line.startswith("3. **Action Items**"):
+                current_section = "action_items"
+                continue
+            elif line.startswith("**") and line.endswith("**"):
+                # Possibly a new theme
+                if current_section == "themes":
+                    theme = line.strip("**")
+                    summary_json["themes"].append({"theme": theme, "details": ""})
+            else:
+                if current_section == "questions_clarifications":
+                    summary_json["questions_clarifications"].append(line)
+                elif current_section == "themes" and summary_json["themes"]:
+                    summary_json["themes"][-1]["details"] += line + "\n"
+                elif current_section == "action_items":
+                    summary_json["action_items"].append(line)
+        return summary_json
+
+    def update_summary_tab(self):
+        """
+        Updates the Summary tab with the latest summary data.
+        """
+        try:
+            self.summary_text.config(state='normal')
+            self.summary_text.delete(1.0, tk.END)
+            if self.summary_json:
+                # Display questions and themes in a formatted way
+                self.summary_text.insert(tk.END, "Questions/Clarifications:\n", 'heading')
+                for question in self.summary_json.get('questions_clarifications', []):
+                    self.summary_text.insert(tk.END, f"- {question}\n")
+                self.summary_text.insert(tk.END, "\nThemes:\n", 'heading')
+                for theme in self.summary_json.get('themes', []):
+                    self.summary_text.insert(tk.END, f"**{theme['theme']}**\n{theme['details']}\n")
+                self.summary_text.insert(tk.END, "\nAction Items:\n", 'heading')
+                for action in self.summary_json.get('action_items', []):
+                    self.summary_text.insert(tk.END, f"- {action}\n")
+            self.summary_text.config(state='disabled')
+        except Exception as e:
+            JSONManager.log_event("Update Summary Tab Exception", f"Error updating summary tab: {e}")
 
     def update_meeting_details_tab(self):
         """
@@ -563,7 +567,7 @@ class MeetingTranscriberApp:
         details = f"Title: {self.meeting_name}\n"
         details += f"Objective: {self.meeting_objective}\n"
         details += f"Date: {time.strftime('%Y-%m-%d')}\n"
-        details += f"Start Time: {time.strftime('%H:%M:%S', time.localtime(self.start_time))}\n" if self.start_time else ""
+        details += f"Start Time: {time.strftime('%H:%M:%S', time.localtime(self.start_time))}\n"
         self.details_text.insert(tk.END, details)
         self.details_text.config(state='disabled')
 
@@ -586,14 +590,13 @@ class MeetingTranscriberApp:
         """
         Generates the final meeting summary using the AI LLMs and saves all data.
         """
-        # For now, this code remains as is. We'll integrate "final_polish" calls in future phases.
         self.root.after(0, self.show_processing_popup)
 
-        # Wait briefly for concurrency to settle
-        time.sleep(2)
+        # Wait for the summary to be updated with any remaining transcriptions
+        time.sleep(2)  # Adjust as needed
 
         try:
-            self.generate_final_summary()  # Possibly a direct call
+            self.generate_final_summary()
             JSONManager.log_event("Final Summary", "Final summary generated successfully.")
         except Exception as e:
             JSONManager.log_event("Final Summary Error", f"Error generating final summary: {e}")
@@ -608,16 +611,73 @@ class MeetingTranscriberApp:
         else:
             formatted_duration = "00:00:00"
 
+        # Update processing popup with stats
         self.root.after(
             0, lambda: self.update_processing_popup_with_stats(formatted_duration)
         )
 
     def generate_final_summary(self):
         """
-        Stub. In the future, we'll incorporate final polishing of all analysis data.
-        For now, we just pass.
+        Generates the final meeting summary using the AI LLMs.
         """
-        pass
+        # Compile full transcript text
+        full_transcript_text = "\n".join([
+            f"[{entry['timestamp']}] Speaker {entry['speaker_id']}: {entry['text']}"
+            for entry in self.full_transcript
+        ])
+
+        system_context = "You are an AI assistant that summarizes meeting discussions."
+        assistant_context = "Provide the final meeting summary with clearly structured sections."
+
+        prompt = f"""
+Please generate the final meeting summary for the meeting titled "{self.meeting_name}" that took place on {time.strftime("%Y-%m-%d")} starting at {time.strftime("%H:%M:%S", time.localtime(self.start_time))}.
+
+Meeting Objective: {self.meeting_objective}
+
+Full Transcript:
+{full_transcript_text}
+
+Previous Summary:
+{self.summary}
+
+Your task is to generate the final meeting summary that accurately reflects the content of the meeting and is organized into the following sections:
+
+1. **Questions/Clarifications**: Answer the questions based on the transcript provided if answers were provided and add new questions if need be without the answers.
+2. **Themes**: Ensure all themes are covered and no information was missed, append new details to the existing data around the themes, this is a summary of the call organized by theme.
+3. **Action Items**: List all action items, who they are assigned to, and any due dates mentioned.
+
+Ensure you do not remove existing data, only enhance it and add to it based on what may be missing and following your instructions.
+"""
+
+        # Submit the final summarization task to the thread pool
+        future = self.executor.submit(generate_text, system_context, assistant_context, prompt)
+        future.add_done_callback(self.handle_final_summary_result)
+
+    def handle_final_summary_result(self, future):
+        """
+        Handles the result of the final summarization task.
+
+        Args:
+            future (Future): The future object containing the final summarization result.
+        """
+        try:
+            final_summary_text, tokens = future.result()
+            self.total_tokens += tokens
+            if final_summary_text and not final_summary_text.startswith("An error occurred"):
+                self.summary = final_summary_text.strip()
+                self.summary_json = self.parse_summary_to_json(self.summary)
+                self.root.after(0, self.update_summary_tab)
+                JSONManager.log_event(
+                    "Final Summary", f"Final summary generated. Tokens used: {tokens}"
+                )
+            else:
+                JSONManager.log_event(
+                    "Final Summary", "No final summary generated or error in generation."
+                )
+        except Exception as e:
+            JSONManager.log_event(
+                "Final Summary Exception", f"Error in handle_final_summary_result: {e}"
+            )
 
     def show_processing_popup(self):
         """
@@ -637,6 +697,9 @@ class MeetingTranscriberApp:
     def update_processing_popup_with_stats(self, formatted_duration):
         """
         Updates the processing popup with meeting statistics.
+
+        Args:
+            formatted_duration (str): The formatted duration of the meeting.
         """
         if hasattr(self, 'processing_popup') and self.processing_popup.winfo_exists():
             for widget in self.processing_popup.winfo_children():
@@ -674,6 +737,12 @@ class MeetingTranscriberApp:
     def save_audio_to_wav(self, audio_data):
         """
         Saves raw audio data to a WAV file.
+
+        Args:
+            audio_data (bytes): The raw audio data.
+
+        Returns:
+            str: The path to the saved WAV file.
         """
         if not audio_data:
             return None
@@ -683,9 +752,10 @@ class MeetingTranscriberApp:
             filename = f"audio_chunk_{uuid.uuid4()}.wav"
             file_path = os.path.join(static_dir, filename)
 
+            # Ensure audio is saved as PCM 16-bit WAV (Whisper expects this format)
             wf = wave.open(file_path, 'wb')
             wf.setnchannels(CHANNELS)
-            wf.setsampwidth(pyaudio.get_sample_size(FORMAT))
+            wf.setsampwidth(pyaudio.get_sample_size(FORMAT))  # FORMAT is paInt16, which is 16-bit PCM
             wf.setframerate(RATE)
             wf.writeframes(audio_data)
             wf.close()
@@ -700,6 +770,7 @@ class MeetingTranscriberApp:
         """
         Saves the meeting data, including transcript and summary, to MongoDB.
         """
+        # Ensure that end_time is after start_time
         if self.end_time and self.start_time and self.end_time < self.start_time:
             JSONManager.log_event(
                 "Save Meeting Data Error",
@@ -717,6 +788,7 @@ class MeetingTranscriberApp:
             for entry in self.full_transcript
         ])
 
+        # Structure the meeting_data in the specified order using SON
         meeting_data = SON([
             ("meeting_title", self.meeting_name),
             ("date", time.strftime("%Y-%m-%d")),
@@ -724,7 +796,7 @@ class MeetingTranscriberApp:
             ("end_time", time.strftime("%H:%M:%S", time.localtime(self.end_time)) if self.end_time else ""),
             ("duration", time.strftime("%H:%M:%S", time.gmtime(duration)) if duration > 0 else "00:00:00"),
             ("full_transcript", transcript_text.strip()),
-            ("summary", self.analysis_data['summary']),    # using 'summary' from our analysis data
+            ("summary", self.summary),
             ("tokens_used", self.total_tokens),
         ])
 
@@ -738,46 +810,55 @@ class MeetingTranscriberApp:
                 "Save to MongoDB", f"Error saving meeting '{self.meeting_name}' data."
             )
 
-    # -- Phase 1: Basic UI updates for each analysis tab --
-    def update_summary_tab(self):
-        self.summary_text.config(state='normal')
-        self.summary_text.delete(1.0, tk.END)
-        self.summary_text.insert(tk.END, self.analysis_data['summary'])
-        self.summary_text.config(state='disabled')
-
     def update_insights_tab(self):
-        self.insights_text.config(state='normal')
-        self.insights_text.delete(1.0, tk.END)
-        for insight in self.analysis_data['insights']:
-            self.insights_text.insert(tk.END, f"- {insight}\n")
-        self.insights_text.config(state='disabled')
+        """
+        Updates the Insights tab with any derived insights.
+        """
+        # For now, we'll display action items as insights
+        try:
+            self.insights_text.config(state='normal')
+            self.insights_text.delete(1.0, tk.END)
+            if self.summary_json.get('action_items'):
+                self.insights_text.insert(tk.END, "Action Items:\n", 'heading')
+                for action in self.summary_json.get('action_items', []):
+                    self.insights_text.insert(tk.END, f"- {action}\n")
+            else:
+                self.insights_text.insert(tk.END, "No insights available.")
+            self.insights_text.config(state='disabled')
+        except Exception as e:
+            JSONManager.log_event("Update Insights Tab Exception", f"Error updating insights tab: {e}")
 
-    def update_themes_tab(self):
-        self.themes_text.config(state='normal')
-        self.themes_text.delete(1.0, tk.END)
-        for theme in self.analysis_data['themes']:
-            self.themes_text.insert(tk.END, f"- {theme}\n")
-        self.themes_text.config(state='disabled')
-
-    def update_questions_tab(self):
-        self.questions_text.config(state='normal')
-        self.questions_text.delete(1.0, tk.END)
-        for question in self.analysis_data['questions']:
-            self.questions_text.insert(tk.END, f"- {question}\n")
-        self.questions_text.config(state='disabled')
-
-    def update_action_items_tab(self):
-        self.action_items_text.config(state='normal')
-        self.action_items_text.delete(1.0, tk.END)
-        for action_item in self.analysis_data['action_items']:
-            self.action_items_text.insert(tk.END, f"- {action_item}\n")
-        self.action_items_text.config(state='disabled')
+    def update_summary_tab(self):
+        """
+        Updates the Summary tab with the latest summary data.
+        """
+        try:
+            self.summary_text.config(state='normal')
+            self.summary_text.delete(1.0, tk.END)
+            if self.summary_json:
+                # Display questions and themes in a formatted way
+                self.summary_text.insert(tk.END, "Questions/Clarifications:\n", 'heading')
+                for question in self.summary_json.get('questions_clarifications', []):
+                    self.summary_text.insert(tk.END, f"- {question}\n")
+                self.summary_text.insert(tk.END, "\nThemes:\n", 'heading')
+                for theme in self.summary_json.get('themes', []):
+                    self.summary_text.insert(tk.END, f"**{theme['theme']}**\n{theme['details']}\n")
+                # After updating summary, update insights
+                self.update_insights_tab()
+            self.summary_text.config(state='disabled')
+        except Exception as e:
+            JSONManager.log_event("Update Summary Tab Exception", f"Error updating summary tab: {e}")
 
 
 class AudioRecorder(threading.Thread):
     def __init__(self, audio_queue, stop_event, pause_event):
         """
         Initializes the AudioRecorder thread.
+
+        Args:
+            audio_queue (Queue): Queue to store audio chunks.
+            stop_event (threading.Event): Event to signal stopping.
+            pause_event (threading.Event): Event to signal pausing.
         """
         super().__init__()
         self.audio_queue = audio_queue
